@@ -1,6 +1,6 @@
 [package]
 name = "nes"
 version = "0.1.0"
-authors = ["BWBW223 <bwbw223gh@gmail.com>"]
+authors = ["stachetheoverlord <bwbw223gh@gmail.com>"]
 
 [dependencies]
