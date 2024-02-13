@@ -1,485 +1,492 @@
-use hdw::cpu::Cpu;
 pub use self::Ops::*;
 pub mod modes;
 
 pub mod Ops {
-    use hdw::cpu::Cpu;
     use super::modes;
+    use crate::hdw::cpu::Cpu;
 
-    pub fn adc(cpu: &mut Cpu, data: modes::data) {
-        let result = cpu.a as u16 + data.get(cpu) as u16 + cpu.get_flag(0) as u16;
+    const FLAG_C: u8 = 0;
+    const FLAG_Z: u8 = 1;
+    const FLAG_I: u8 = 2;
+    const FLAG_D: u8 = 3;
+    const FLAG_B: u8 = 4;
+    const FLAG_V: u8 = 6;
+    const FLAG_N: u8 = 7;
 
-        let z = result == 0;
-        let n = (result >> 7) == 1;
-        let v = (!((((result % 256) as u8) >> 7) ^ (cpu.a >> 7)) & (cpu.a ^ cpu.get_flag(0) as u8))
-            == 1;
+    pub fn adc(cpu: &mut Cpu, data: &modes::Data) {
+        let result = cpu.a as u16 + data.get(cpu) as u16 + cpu.get_flag(FLAG_C) as u16;
+
+        let z = (result & 0xFF) == 0;
+        let n = (result >> 7) & 1 == 1;
+        let v = ((!(cpu.a ^ data.get(cpu)) & (cpu.a ^ (result & 0xFF) as u8)) >> 7) & 1 == 1;
         let c = result > 255;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        cpu.set_flag(6, v);
-        cpu.set_flag(0, c);
-        cpu.a = (result % 256) as u8;
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        cpu.set_flag(FLAG_V, v);
+        cpu.set_flag(FLAG_C, c);
+        cpu.a = (result & 0xFF) as u8;
     }
 
-    pub fn and(cpu: &mut Cpu, data: modes::data) {
+    pub fn and(cpu: &mut Cpu, data: &modes::Data) {
         cpu.a = cpu.a & data.get(cpu);
         let z = cpu.a == 0;
         let n = (cpu.a >> 7) == 1;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
     }
 
-    pub fn asl(cpu: &mut Cpu, data: modes::data) {
-        let result = (data.get(cpu) as u16) >> 1;
-        let c = (data.get(cpu) & 1) == 1;
+    pub fn asl(cpu: &mut Cpu, data: &modes::Data) {
+        let result = data.get(cpu) << 1;
+        let c = (data.get(cpu) >> 7) & 1 == 1;
 
         let z = result == 0;
         let n = (result >> 7) == 1;
-        cpu.set_flag(0, c);
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
+        cpu.set_flag(FLAG_C, c);
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
         data.set(cpu, (result & 0xff) as u8);
-
-        cpu.poll_interrupt();
     }
 
-    pub fn bcc(cpu: &mut Cpu, data: modes::data) {
+    pub fn bcc(cpu: &mut Cpu, data: &modes::Data) {
         let flag = !cpu.get_flag(0);
         branch(cpu, data, flag);
     }
-    
-    pub fn bcs(cpu: &mut Cpu, data: modes::data) {
+
+    pub fn bcs(cpu: &mut Cpu, data: &modes::Data) {
         let flag = cpu.get_flag(0);
         branch(cpu, data, flag);
     }
-    
-    pub fn beq(cpu: &mut Cpu, data: modes::data) {
+
+    pub fn beq(cpu: &mut Cpu, data: &modes::Data) {
         let flag = cpu.get_flag(1);
         branch(cpu, data, flag);
     }
 
-    pub fn bit(cpu: &mut Cpu, data: modes::data) {
-        let result = cpu.a & data.get(cpu);
+    pub fn bit(cpu: &mut Cpu, data: &modes::Data) {
+        let m = data.get(cpu);
+        let result = cpu.a & m;
 
         let z = result == 0;
-        let n = (result >> 7) == 1;
-        let v = ((result >> 6) & 1) == 1;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        cpu.set_flag(6, v);
-        
-        cpu.poll_interrupt();
+        let n = (m >> 7) == 1;
+        let v = ((m >> 6) & 1) == 1;
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        cpu.set_flag(FLAG_V, v);
     }
 
-    pub fn bmi(cpu: &mut Cpu, data: modes::data) {
+    pub fn bmi(cpu: &mut Cpu, data: &modes::Data) {
         let flag = cpu.get_flag(7);
         branch(cpu, data, flag);
     }
-    
-    pub fn bne(cpu: &mut Cpu, data: modes::data) {
+
+    pub fn bne(cpu: &mut Cpu, data: &modes::Data) {
         let flag = !cpu.get_flag(1);
         branch(cpu, data, flag);
     }
 
-    pub fn bpl(cpu: &mut Cpu, data: modes::data) {
+    pub fn bpl(cpu: &mut Cpu, data: &modes::Data) {
         let flag = !cpu.get_flag(7);
+        branch(cpu, data, flag);
     }
 
-    pub fn brk(cpu: &mut Cpu, _data: modes::data) {
-        cpu.set_flag(4, true);
+    pub fn brk(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_B, true);
         cpu.irq();
-
-        cpu.poll_interrupt();
     }
 
-    pub fn bvc(cpu: &mut Cpu, data: modes::data) {
+    pub fn bvc(cpu: &mut Cpu, data: &modes::Data) {
         let flag = !cpu.get_flag(6);
         branch(cpu, data, flag);
     }
 
-    pub fn bvs(cpu: &mut Cpu, data: modes::data) {
+    pub fn bvs(cpu: &mut Cpu, data: &modes::Data) {
         let flag = cpu.get_flag(6);
         branch(cpu, data, flag);
     }
 
-    pub fn clc(cpu: &mut Cpu, _data: modes::data) {
-        cpu.set_flag(0, false);
-
-        cpu.poll_interrupt();
+    pub fn clc(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_C, false);
     }
 
-    pub fn cli(cpu: &mut Cpu, _data: modes::data) {
-        cpu.set_flag(2, false);
-
-        cpu.poll_interrupt();
+    pub fn cld(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_D, false);
     }
-    
-    pub fn clv(cpu: &mut Cpu, _data: modes::data) {
-        cpu.set_flag(6, false);
 
-        cpu.poll_interrupt();
+    pub fn cli(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_I, false);
     }
-    
-    pub fn cmp(cpu: &mut Cpu, data: modes::data) {
+
+    pub fn clv(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_V, false);
+    }
+
+    pub fn cmp(cpu: &mut Cpu, data: &modes::Data) {
         let result = (cpu.a as u16).wrapping_sub(data.get(cpu) as u16);
-        
-        let z = result == 0;
-        let n = (result >> 7) == 1;
+
+        let z = result & 0xFF == 0;
+        let n = (result >> 7) & 1 == 1;
         let c = cpu.a >= data.get(cpu);
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        cpu.set_flag(0, c);
-        
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        cpu.set_flag(FLAG_C, c);
     }
-    
-    pub fn cpx(cpu: &mut Cpu, data: modes::data) {
-        let result = (cpu.x as u16).wrapping_add(!(data.get(cpu) as u16));
 
-        let z = result == 0;
-        let n = (result >> 7) == 1;
-        let c = result > 255;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        cpu.set_flag(0, c);
-        
-        cpu.poll_interrupt();
-    }
-    
-    pub fn cpy(cpu: &mut Cpu, data: modes::data) {
-        let result = (cpu.y as u16).wrapping_add(!(data.get(cpu) as u16));
+    pub fn cpx(cpu: &mut Cpu, data: &modes::Data) {
+        let result = (cpu.x as u16).wrapping_sub(data.get(cpu) as u16);
 
-        let z = result == 0;
-        let n = (result >> 7) == 1;
-        let c = result > 255;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        cpu.set_flag(0, c);
-        
-        cpu.poll_interrupt();
+        let z = result & 0xFF == 0;
+        let n = (result >> 7) & 1 == 1;
+        let c = cpu.x >= data.get(cpu);
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        cpu.set_flag(FLAG_C, c);
     }
-    
-    pub fn dec(cpu: &mut Cpu, data: modes::data) {
+
+    pub fn cpy(cpu: &mut Cpu, data: &modes::Data) {
+        let result = (cpu.y as u16).wrapping_sub(data.get(cpu) as u16);
+
+        let z = result & 0xFF == 0;
+        let n = (result >> 7) & 1 == 1;
+        let c = cpu.y >= data.get(cpu);
+
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        cpu.set_flag(FLAG_C, c);
+    }
+
+    pub fn dcp(cpu: &mut Cpu, data: &modes::Data) {
+        dec(cpu, data);
+        cmp(cpu, data);
+    }
+
+    pub fn dec(cpu: &mut Cpu, data: &modes::Data) {
         let result = data.get(cpu).wrapping_sub(1);
-        
-        data.set(cpu, result);
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, result == 0);
+        cpu.set_flag(FLAG_N, result >> 7 == 1);
+
+        data.set(cpu, result);
     }
-    
-    pub fn dex(cpu: &mut Cpu, _data: modes::data) {
+
+    pub fn dex(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.x = cpu.x.wrapping_sub(1);
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.x == 0);
+        cpu.set_flag(FLAG_N, cpu.x >> 7 == 1);
     }
 
-    pub fn dey(cpu: &mut Cpu, _data: modes::data) {
+    pub fn dey(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.y = cpu.y.wrapping_sub(1);
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.y == 0);
+        cpu.set_flag(FLAG_N, cpu.y >> 7 == 1);
     }
 
-    pub fn eor(cpu: &mut Cpu, data: modes::data) {
+    pub fn eor(cpu: &mut Cpu, data: &modes::Data) {
         cpu.a = cpu.a ^ data.get(cpu);
         let z = cpu.a == 0;
         let n = (cpu.a >> 7) == 1;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
     }
-    
-    pub fn inc(cpu: &mut Cpu, data: modes::data) {
+
+    pub fn inc(cpu: &mut Cpu, data: &modes::Data) {
         let result = data.get(cpu).wrapping_add(1);
-        
-        data.set(cpu, result);
+        cpu.set_flag(FLAG_Z, result == 0);
+        cpu.set_flag(FLAG_N, result >> 7 == 1);
 
-        cpu.poll_interrupt();
+        data.set(cpu, result);
     }
-    
-    pub fn inx(cpu: &mut Cpu, _data: modes::data) {
+
+    pub fn inx(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.x = cpu.x.wrapping_add(1);
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.x == 0);
+        cpu.set_flag(FLAG_N, cpu.x >> 7 == 1);
     }
-    
-    pub fn iny(cpu: &mut Cpu, _data: modes::data) {
+
+    pub fn iny(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.y = cpu.y.wrapping_add(1);
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.y == 0);
+        cpu.set_flag(FLAG_N, cpu.y >> 7 == 1);
     }
-    
-    pub fn jmp(cpu: &mut Cpu, data: modes::data) {
-        match data {
-            modes::data::Memory(address) => {
-                cpu.pc = address;
 
-                cpu.poll_interrupt();
-            }
+    pub fn isc(cpu: &mut Cpu, data: &modes::Data) { // undocumented
+        inc(cpu, data);
+        sbc(cpu, data);
+    }
+
+    pub fn jmp(cpu: &mut Cpu, data: &modes::Data) {
+        match *data {
+            modes::Data::Memory(address) => {
+                cpu.pc = address;
+            },
             _ => {}
         }
     }
 
-    pub fn jsr(cpu: &mut Cpu, data: modes::data) {
-        match data {
-            modes::data::Memory(a) => {
+    pub fn jsr(cpu: &mut Cpu, data: &modes::Data) {
+        match *data {
+            modes::Data::Memory(a) => {
                 cpu.pc = cpu.pc.wrapping_sub(1);
-                let lo = (cpu.pc.wrapping_add(2) % 256) as u8;
-                let hi = (cpu.pc.wrapping_add(2) >> 8 % 256) as u8;
+                let lo = (cpu.pc % 256) as u8;
+                let hi = (cpu.pc >> 8 % 256) as u8;
                 cpu.push(hi);
                 cpu.push(lo);
                 cpu.pc = a;
-            }
+            },
             _ => unreachable!(),
         };
-
-        cpu.poll_interrupt();
     }
 
-    pub fn lda(cpu: &mut Cpu, data: modes::data) {
+    pub fn lax(cpu: &mut Cpu, data: &modes::Data) {
+        // undocumented
         let result = data.get(cpu);
         cpu.a = result;
-        
+        cpu.x = result;
+
         let z = result == 0;
         let n = (result >> 7) == 1;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
     }
 
-    pub fn ldx(cpu: &mut Cpu, data: modes::data) {
+    pub fn lda(cpu: &mut Cpu, data: &modes::Data) {
+        let result = data.get(cpu);
+        cpu.a = result;
+
+        let z = result == 0;
+        let n = (result >> 7) == 1;
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+    }
+
+    pub fn ldx(cpu: &mut Cpu, data: &modes::Data) {
         let result = data.get(cpu);
         cpu.x = result;
-        
+
         let z = result == 0;
         let n = (result >> 7) == 1;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
     }
 
-    pub fn ldy(cpu: &mut Cpu, data: modes::data) {
+    pub fn ldy(cpu: &mut Cpu, data: &modes::Data) {
         let result = data.get(cpu);
         cpu.y = result;
-        
-        let z = result == 0;
-        let n = (result >> 7) == 1;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-
-        cpu.poll_interrupt();
-    }
-
-    pub fn lsr(cpu: &mut Cpu, data: modes::data) {
-        let result = (data.get(cpu) as u16) << 1;
-        let c = (result >> 8) == 1;
 
         let z = result == 0;
         let n = (result >> 7) == 1;
-        cpu.set_flag(0, c);
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        data.set(cpu, (result & 0xff) as u8);
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
     }
 
-    pub fn ora(cpu: &mut Cpu, data: modes::data) {
+    pub fn lsr(cpu: &mut Cpu, data: &modes::Data) {
+        let result = data.get(cpu) >> 1;
+        let c = data.get(cpu) & 1 == 1;
+
+        let z = result == 0;
+        let n = (result >> 7) == 1;
+        cpu.set_flag(FLAG_C, c);
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        data.set(cpu, result);
+    }
+
+    pub fn nop(_cpu: &mut Cpu, _data: &modes::Data) {}
+
+    pub fn ora(cpu: &mut Cpu, data: &modes::Data) {
         cpu.a = cpu.a | data.get(cpu);
         let z = cpu.a == 0;
         let n = (cpu.a >> 7) == 1;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
     }
 
-    pub fn pha(cpu: &mut Cpu, data: modes::data) {
+    pub fn pha(cpu: &mut Cpu, _data: &modes::Data) {
         let value = cpu.a;
         cpu.push(value);
-
-        cpu.poll_interrupt();
     }
 
-    pub fn php(cpu: &mut Cpu, data: modes::data) {
-        let result = cpu.flags;
+    pub fn php(cpu: &mut Cpu, _data: &modes::Data) {
+        let result = cpu.flags | 0b0010000;
         cpu.push(result);
-
-        cpu.poll_interrupt();
     }
 
-    pub fn pla(cpu: &mut Cpu, _data: modes::data) {
+    pub fn pla(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.a = cpu.pop();
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.a == 0);
+        cpu.set_flag(FLAG_N, (cpu.a >> 7) & 1 == 1);
     }
 
-    pub fn plp(cpu: &mut Cpu, data: modes::data) {
-        cpu.flags = cpu.pop();
-
-        cpu.poll_interrupt();
+    pub fn plp(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.flags = (cpu.pop() & 0b11001111) | 0b00100000;
     }
 
-    pub fn rol(cpu: &mut Cpu, data: modes::data) {
-        let result = data.get(cpu).rotate_left(1);
-        let c = (result & 1) == 1;
-
-        let z = result == 0;
-        let n = (result >> 7) == 0;
-        cpu.set_flag(0, c);
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        data.set(cpu, result);
-
-        cpu.poll_interrupt();
+    pub fn rla(cpu: &mut Cpu, data: &modes::Data) {
+        rol(cpu, data);
+        and(cpu, data);
     }
 
-    pub fn ror(cpu: &mut Cpu, data: modes::data) {
-        let result = data.get(cpu).rotate_right(1);
-        let c = (data.get(cpu) >> 7) == 1;
-
-        let z = result == 0;
-        let n = (result >> 7) == 0;
-        cpu.set_flag(0, c);
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        data.set(cpu, result);
-
-        cpu.poll_interrupt();
-    }
-
-    pub fn rti(cpu: &mut Cpu, _data: modes::data) {
-        cpu.flags = cpu.pop();
-        let lo = cpu.pop();
-        let hi = cpu.pop();
-        cpu.pc = ((hi as u16) << 8) + lo as u16;
-
-        cpu.poll_interrupt();
-    }
-
-    pub fn rts(cpu: &mut Cpu, _data: modes::data) {
-        let lo = cpu.pop();
-        let hi = cpu.pop();
-        cpu.pc = (((hi as u16) << 8) + lo as u16).wrapping_sub(1);
-
-        cpu.poll_interrupt();
-    }
-    
-    pub fn sbc(cpu: &mut Cpu, data: modes::data) {
-        let result = (cpu.a as u16) + !(data.get(cpu) as u16) + (cpu.get_flag(0) as u16);
+    pub fn rol(cpu: &mut Cpu, data: &modes::Data) {
+        let result = data.get(cpu) << 1 | cpu.get_flag(FLAG_C) as u8;
+        let c = (data.get(cpu) >> 7) & 1 == 1;
 
         let z = result == 0;
         let n = (result >> 7) == 1;
-        let v = (!((((result % 256) as u8) >> 7) ^ (cpu.a >> 7)) & (cpu.a ^ cpu.get_flag(0) as u8))
-            == 1;
+        cpu.set_flag(FLAG_C, c);
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        data.set(cpu, result);
+    }
+
+    pub fn ror(cpu: &mut Cpu, data: &modes::Data) {
+        let result = data.get(cpu) >> 1 | (cpu.get_flag(FLAG_C) as u8) << 7;
+        let c = data.get(cpu) & 1 == 1;
+
+        let z = result == 0;
+        let n = (result >> 7) == 1;
+        cpu.set_flag(FLAG_C, c);
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        data.set(cpu, result);
+    }
+
+    pub fn rra(cpu: &mut Cpu, data: &modes::Data) {
+        ror(cpu, data);
+        adc(cpu, data);
+    }
+
+    pub fn rti(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.flags = (cpu.pop() & 0b11001111) | 0b00100000;
+        let lo = cpu.pop();
+        let hi = cpu.pop();
+        cpu.pc = ((hi as u16) << 8) + lo as u16;
+    }
+
+    pub fn rts(cpu: &mut Cpu, _data: &modes::Data) {
+        let lo = cpu.pop();
+        let hi = cpu.pop();
+        cpu.pc = (((hi as u16) << 8) + lo as u16).wrapping_add(1);
+    }
+
+    pub fn sax(cpu: &mut Cpu, data: &modes::Data) {
+        // undocumented
+        match data {
+            &modes::Data::Memory(a) => {
+                cpu.mem.set(a, cpu.a & cpu.x);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn sbc(cpu: &mut Cpu, data: &modes::Data) {
+        let result = cpu.a as u16 + !data.get(cpu) as u16 + cpu.get_flag(FLAG_C) as u16;
+
+        let z = (result & 0xFF) == 0;
+        let n = (result >> 7) & 1 == 1;
+        let v = ((!(cpu.a ^ !data.get(cpu)) & (cpu.a ^ (result & 0xFF) as u8)) >> 7) & 1 == 1;
         let c = result > 255;
-        cpu.set_flag(1, z);
-        cpu.set_flag(7, n);
-        cpu.set_flag(6, v);
-        cpu.set_flag(0, c);
-        cpu.a = (result % 256) as u8;
-
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, z);
+        cpu.set_flag(FLAG_N, n);
+        cpu.set_flag(FLAG_V, v);
+        cpu.set_flag(FLAG_C, c);
+        cpu.a = (result & 0xFF) as u8;
     }
 
-    pub fn sec(cpu: &mut Cpu, _data: modes::data) {
-        cpu.set_flag(0, true);
-
-        cpu.poll_interrupt();
-    }
-    
-    pub fn sed(cpu: &mut Cpu, _data: modes::data) {
-        cpu.set_flag(3, true);
-
-        cpu.poll_interrupt();
+    pub fn sec(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_C, true);
     }
 
-
-    pub fn sei(cpu: &mut Cpu, _data: modes::data) {
-        cpu.set_flag(2, true);
-
-        cpu.poll_interrupt();
+    pub fn sed(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_D, true);
     }
 
-    pub fn sta(cpu: &mut Cpu, data: modes::data) {
+    pub fn sei(cpu: &mut Cpu, _data: &modes::Data) {
+        cpu.set_flag(FLAG_I, true);
+    }
+
+    pub fn sta(cpu: &mut Cpu, data: &modes::Data) {
         match data {
-            modes::data::Memory(a) => {
+            &modes::Data::Memory(a) => {
                 cpu.mem.set(a, cpu.a);
-
-                cpu.poll_interrupt();
             }
             _ => unreachable!(),
         }
     }
 
-    pub fn stx(cpu: &mut Cpu, data: modes::data) {
+    pub fn stx(cpu: &mut Cpu, data: &modes::Data) {
         match data {
-            modes::data::Memory(a) => {
+            &modes::Data::Memory(a) => {
                 cpu.mem.set(a, cpu.x);
-
-                cpu.poll_interrupt();
             }
             _ => unreachable!(),
         }
     }
 
-    pub fn sty(cpu: &mut Cpu, data: modes::data) {
+    pub fn sty(cpu: &mut Cpu, data: &modes::Data) {
         match data {
-            modes::data::Memory(a) => {
+            &modes::Data::Memory(a) => {
                 cpu.mem.set(a, cpu.y);
-
-                cpu.poll_interrupt();
             }
             _ => unreachable!(),
         }
     }
-    
-    pub fn tax(cpu: &mut Cpu, _data: modes::data) {
+
+    pub fn slo(cpu: &mut Cpu, data: &modes::Data) { // undocumented
+        asl(cpu, data);
+        ora(cpu, data);
+    }
+
+    pub fn sre(cpu: &mut Cpu, data: &modes::Data) {
+        lsr(cpu, data);
+        eor(cpu, data);
+    }
+
+    pub fn tax(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.x = cpu.a;
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.x == 0);
+        cpu.set_flag(FLAG_N, cpu.x >> 7 == 1);
     }
-    
-    pub fn tay(cpu: &mut Cpu, _data: modes::data) {
+
+    pub fn tay(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.y = cpu.a;
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.y == 0);
+        cpu.set_flag(FLAG_N, cpu.y >> 7 == 1);
     }
-    
-    pub fn tsx(cpu: &mut Cpu, _data: modes::data) {
+
+    pub fn tsx(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.x = cpu.s;
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.x == 0);
+        cpu.set_flag(FLAG_N, cpu.x >> 7 == 1);
     }
 
-    pub fn txa(cpu: &mut Cpu, _data: modes::data) {
+    pub fn txa(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.a = cpu.x;
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.a == 0);
+        cpu.set_flag(FLAG_N, cpu.a >> 7 == 1);
     }
 
-    pub fn txs(cpu: &mut Cpu, _data: modes::data) {
+    pub fn txs(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.s = cpu.x;
-
-        cpu.poll_interrupt();
     }
 
-    pub fn tya(cpu: &mut Cpu, _data: modes::data) {
+    pub fn tya(cpu: &mut Cpu, _data: &modes::Data) {
         cpu.a = cpu.y;
 
-        cpu.poll_interrupt();
+        cpu.set_flag(FLAG_Z, cpu.a == 0);
+        cpu.set_flag(FLAG_N, cpu.a >> 7 == 1);
     }
 
-    fn branch(cpu: &mut Cpu, data: modes::data, flag: bool) {
+    fn branch(cpu: &mut Cpu, data: &modes::Data, flag: bool) {
         if flag {
             match data {
-                modes::data::Memory(a) => cpu.pc = a,
+                &modes::Data::Memory(a) => cpu.pc = a,
                 _ => {}
             }
         }

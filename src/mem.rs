@@ -1,4 +1,4 @@
-use hdw::Memory;
+use crate::hdw::Memory;
 use std::cell::Cell;
 
 pub struct Mem {
@@ -13,18 +13,18 @@ impl Mem {
         self.set(0xFFFD, (reset >> 8) as u8);
         self.set(0xFFFC, (reset % 256) as u8);
     }
-    
+
     pub fn load_file(&self, data: &str, location: u16, reset: u16) {
         use std::fs::File;
         use std::io::Read;
-        
+
         let mut file = File::open(data).unwrap();
         let mut buf = vec![];
-        
+
         file.read_to_end(&mut buf);
-        
+
         buf.truncate(0x4000);
-        
+
         for index in 0..buf.len() {
             self.set((index as u16).wrapping_add(location), buf[index]);
         }
