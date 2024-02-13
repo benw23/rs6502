@@ -7,8 +7,8 @@ pub struct Mem {
 
 impl Mem {
     pub fn load(&self, data: Vec<u8>, location: u16, reset: u16) {
-        for index in 0..data.len() {
-            self.set((index as u16).wrapping_add(location), data[index])
+        for (index, value) in data.iter().enumerate() {
+            self.set((index as u16).wrapping_add(location), *value)
         }
         self.set(0xFFFD, (reset >> 8) as u8);
         self.set(0xFFFC, (reset % 256) as u8);
@@ -21,15 +21,10 @@ impl Mem {
         let mut file = File::open(data).unwrap();
         let mut buf = vec![];
 
-        file.read_to_end(&mut buf);
+        file.read_to_end(&mut buf).unwrap();
 
         buf.truncate(0x4000);
-
-        for index in 0..buf.len() {
-            self.set((index as u16).wrapping_add(location), buf[index]);
-        }
-        //self.set(0xFFFD, (reset >> 8) as u8);
-        //self.set(0xFFFC, (reset % 256) as u8);
+        self.load(buf, location, reset);
     }
 }
 

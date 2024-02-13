@@ -93,7 +93,7 @@ pub fn zeropage(cpu: &mut Cpu) -> Data {
 
 pub fn zeropagex(cpu: &mut Cpu) -> Data {
     let arg = cpu.mem.get(cpu.pc.wrapping_add(1));
-    let result = arg.wrapping_add(cpu.x.into());
+    let result = arg.wrapping_add(cpu.x);
 
     cpu.pc = cpu.pc.wrapping_add(2);
     Data::Memory(result.into())
@@ -101,7 +101,7 @@ pub fn zeropagex(cpu: &mut Cpu) -> Data {
 
 pub fn zeropagey(cpu: &mut Cpu) -> Data {
     let arg = cpu.mem.get(cpu.pc.wrapping_add(1));
-    let result = arg.wrapping_add(cpu.y.into());
+    let result = arg.wrapping_add(cpu.y);
 
     cpu.pc = cpu.pc.wrapping_add(2);
     Data::Memory(result.into())
@@ -116,19 +116,19 @@ pub enum Data {
 
 impl Data {
     pub fn get(&self, cpu: &mut Cpu) -> u8 {
-        match self {
-            &Data::A => cpu.a,
-            &Data::Memory(address) => cpu.mem.get(address.clone()),
-            &Data::Value(val) => val.clone(),
-            &Data::Implied => 0,
+        match *self {
+            Data::A => cpu.a,
+            Data::Memory(address) => cpu.mem.get(address),
+            Data::Value(val) => val,
+            Data::Implied => 0,
         }
     }
     pub fn set(&self, cpu: &mut Cpu, val: u8) {
-        match self {
-            &Data::A => cpu.a = val,
-            &Data::Memory(address) => cpu.mem.set(address.clone(), val),
-            &Data::Value(val) => unreachable!(),
-            &Data::Implied => unreachable!(),
+        match *self {
+            Data::A => cpu.a = val,
+            Data::Memory(address) => cpu.mem.set(address, val),
+            Data::Value(_) => unreachable!(),
+            Data::Implied => unreachable!(),
         }
     }
 }
